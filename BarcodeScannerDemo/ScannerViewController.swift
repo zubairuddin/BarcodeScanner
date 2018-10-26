@@ -13,73 +13,23 @@ import UIKit
 
 class ScannerViewController: UIViewController {
     
+    @IBOutlet weak var btnStartStopScan: UIBarButtonItem!
     @IBOutlet weak var viewVideoPreview: UIView!
     
+    var isScanning = false
+    
+    var session: AVCaptureSession?
+    var videoPreviewLayer: AVCaptureVideoPreviewLayer?
+    var redLineView: UIView?
+    
     override func viewDidLoad() {
-        //scanBarcode()
         startScan()
     }
     
-    func scanBarcode() {
-        
-        //Create a capture session
-        let session = AVCaptureSession()
-        
-        //Get the device from which input will be taken
-        guard let device = AVCaptureDevice.default(for: .video) else {
-            return
-        }
-        
-        let deviceInput: AVCaptureDeviceInput?
-        
-        do {
-            
-            deviceInput = try AVCaptureDeviceInput(device: device)
-        
-            let output = AVCaptureMetadataOutput()
-            
-            output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
-            
-            session.addInput(deviceInput!)
-            session.addOutput(output)
-            
-            output.metadataObjectTypes = [.ean13]
-
-            //Create the layer to show the video over UIView
-            let videoPreviewLayer = AVCaptureVideoPreviewLayer(session: session)
-            videoPreviewLayer.videoGravity = .resizeAspectFill
-            
-            videoPreviewLayer.frame = viewVideoPreview.bounds
-            viewVideoPreview.layer.addSublayer(videoPreviewLayer)
-            
-            //Red line
-            let from = CGPoint(x: 20, y: 80)
-            let to = CGPoint(x: viewVideoPreview.frame.width - 20, y: 80)
-            
-            let redLine = drawLine(fromPoint: from, toPoint: to)
-            
-            viewVideoPreview.layer.addSublayer(redLine)
-            
-            session.startRunning()
-            
-            let rect = CGRect(x: 20, y: 80, width: viewVideoPreview.frame.width - 20, height: 10)
-            
-            let rectOfInterest = videoPreviewLayer.metadataOutputRectConverted(fromLayerRect: redLine.frame)
-            output.rectOfInterest = rectOfInterest
-
-
-        }
-        catch {
-            
-        }
-    }
-    
     func startScan() {
-        // Get an instance of the AVCaptureDevice class to initialize a device object and provide the video
-        // as the media type parameter.
         
         //Create a capture session
-        let session = AVCaptureSession()
+        session = AVCaptureSession()
         
         //Get the device from which input will be taken
         guard let captureDevice = AVCaptureDevice.default(for: .video) else {
@@ -97,39 +47,72 @@ class ScannerViewController: UIViewController {
             
             output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
             
-            session.addInput(deviceInput!)
-            session.addOutput(output)
+            session?.addInput(deviceInput!)
+            session?.addOutput(output)
             
             output.metadataObjectTypes = [.ean13]
             
             
-            //Scan rect
-            let redLineView = UIView()
-            redLineView.layer.borderColor = UIColor.red.cgColor
-            redLineView.layer.borderWidth = 2
-            redLineView.frame = CGRect(x: 20, y: 60, width: view.frame.width - 20, height: 10)
-            view.addSubview(redLineView)
-
-            
             //Add the preview layer
-            let videoPreviewLayer = AVCaptureVideoPreviewLayer(session: session)
-            videoPreviewLayer.videoGravity = .resizeAspectFill
-            videoPreviewLayer.frame = view.layer.bounds
-            view.layer.addSublayer(videoPreviewLayer)
+            guard let captureSession = session else {
+                return
+            }
             
-            session.startRunning()
+            //Video recording layer
+            videoPreviewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
+            videoPreviewLayer?.videoGravity = .resizeAspectFill
+            videoPreviewLayer?.frame = view.layer.bounds
+            videoPreviewLayer?.isHidden = false
+            view.layer.addSublayer(videoPreviewLayer!)
+
+            //Red line view
+            redLineView = UIView()
+            redLineView?.isHidden = false
+            redLineView?.layer.borderColor = UIColor.red.cgColor
+            redLineView?.layer.borderWidth = 2
+            redLineView?.frame = CGRect(x: 20, y: (videoPreviewLayer?.frame.size.height)! / 2, width: view.frame.width - 40, height: 1)
+            view.addSubview(redLineView!)
+
+            //view.bringSubviewToFront(redLineView!)
             
-            let visibleRect = videoPreviewLayer.metadataOutputRectConverted(fromLayerRect: videoPreviewLayer.bounds)
+            //Start video
+            session?.startRunning()
             
-            output.rectOfInterest = visibleRect
+            //Restrict scanning to a certain rect
+            let visibleRect = videoPreviewLayer?.metadataOutputRectConverted(fromLayerRect: (redLineView?.frame)!)
             
-            view.bringSubviewToFront(redLineView)
+            print("Area of interest: \(visibleRect)")
+            output.rectOfInterest = visibleRect!
+            
+            
         }
         catch {
             
         }
     }
-
+    
+    func stopScan() {
+        session?.stopRunning()
+        session = nil
+        videoPreviewLayer?.isHidden = true
+        redLineView?.isHidden = true
+        //isScanning = false
+        btnStartStopScan.title = "Scan"
+    }
+    
+    @IBAction func startStopScan(_ sender: UIBarButtonItem) {
+        if isScanning {
+            stopScan()
+            btnStartStopScan.title = "Scan"
+        }
+        else {
+            startScan()
+            btnStartStopScan.title = "Stop"
+        }
+        
+        isScanning = !isScanning
+    }
+    
     
     func drawLine(fromPoint start: CGPoint, toPoint end: CGPoint) -> CALayer {
         let line = CAShapeLayer()
@@ -143,6 +126,18 @@ class ScannerViewController: UIViewController {
         
         return line
     }
+    
+    func showAlert(withTitle title: String, andMessage message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel, handler: nil)
+        let restartAction = UIAlertAction(title: "Restart", style: .default) { (action) in
+            self.startScan()
+        }
+        
+        alert.addAction(cancelAction)
+        alert.addAction(restartAction)
+        present(alert, animated: true, completion: nil)
+    }
 
 }
 
@@ -154,8 +149,17 @@ extension ScannerViewController: AVCaptureMetadataOutputObjectsDelegate {
                 return
             }
             
+            //Check if detected code is a barcode and convert it to string
             if readableCode.type == .ean13 {
-                print("Barcode detected: \(readableCode.stringValue)")
+                guard let stringCode = readableCode.stringValue else {
+                    return
+                }
+                //Stop scanning
+                stopScan()
+                isScanning = false
+                
+                print("Barcode detected: \(stringCode)")
+                showAlert(withTitle: "Barcode Scanned.", andMessage: stringCode)
                 return
             }
         }
